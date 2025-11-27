@@ -1,0 +1,42 @@
+{
+  "name": "fnfo-gameservice",
+  "version": "1.0.0",
+  "description": "FNFO GameService - Real-time match orchestration microservice",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "nodemon --watch src --exec ts-node src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "author": "FNFO-Team",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.13.2",
+    "axios-retry": "^3.9.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "ioredis": "^5.8.2",
+    "morgan": "^1.10.1",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.25",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^20.19.25",
+    "@types/socket.io": "^3.0.2",
+    "nodemon": "^3.1.11",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FNFO-Team/fnfo-gameservice.git"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/FNFO-Team/fnfo-gameservice/issues"
+  },
+  "homepage": "https://github.com/FNFO-Team/fnfo-gameservice#readme"
+}
