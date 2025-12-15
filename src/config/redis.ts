@@ -29,7 +29,7 @@ redis.on("reconnecting", () => {
 
 /**
  * Función para asegurar que Redis está conectado
- * (útil para integración inicial en server.ts)
+ * (para integración inicial en server.ts)
  */
 export async function initRedis() {
   try {
