@@ -1,26 +1,45 @@
-// src/integrations/statistics.client.ts
 import { httpClient } from "../common/httpClient";
 import { env } from "../config/env";
-import { MatchResult } from "../game/dto";
+import { generateIdempotencyKey } from "../utils/idempotency";
+
+interface StatisticsGameResultPayload {
+  songId: string;
+  score: number;
+  accuracy: number;
+  maxCombo: number;
+  durationMs: number;
+  hits: {
+    perfect: number;
+    great: number;
+    good: number;
+    miss: number;
+  };
+}
 
 export class StatisticsClient {
   /**
-   * Envía a StatisticsService los datos de rendimiento de una partida.
+   * Envía el resultado final de una partida al StatisticsService.
+   * Reenvía el token del usuario para que authMiddleware resuelva el userId.
    */
-  async postMatchStatistics(result: MatchResult): Promise<void> {
-    const url = `${env.STATISTICS_BASE_URL}/matches`;
+  async postGameResult(
+    payload: StatisticsGameResultPayload,
+    userToken: string,
+    matchId: string
+  ): Promise<void> {
+    const url = `${env.STATISTICS_BASE_URL}/stats/game-result`;
 
-    const response = await httpClient.post(url, result, {
+    const response = await httpClient.post(url, payload, {
       headers: {
-        "Idempotency-Key": result.matchId,
+        Authorization: `Bearer ${userToken}`,
+        "Idempotency-Key": generateIdempotencyKey(matchId),
       },
     });
 
-    if (response.status >= 400) {
-      console.error("Error al enviar estadísticas:", response.data);
-      throw new Error("StatisticsService no procesó los datos");
+    if (!response || response.status >= 400) {
+      console.error("StatisticsService error:", response?.data);
+      throw new Error("Failed to send game result to statistics");
     }
 
-    console.log("Estadísticas enviadas correctamente");
+    console.log("Statistics updated");
   }
 }

@@ -1,57 +1,112 @@
-// src/game/state.repository.ts
 import { redis } from "../config/redis";
+import {
+  MatchConfig,
+  LiveSnapshot,
+  FinalResultSummary,
+  MatchState,
+} from "./dto";
 import { env } from "../config/env";
 
 export class StateRepository {
-  /**
-   * Guarda estado general de un match
-   */
-  async saveMatchState(matchId: string, data: any): Promise<void> {
+  private ttl = env.MATCH_TTL_SEC;
+
+  private key(matchId: string, suffix: string) {
+    return `match:${matchId}:${suffix}`;
+  }
+
+  /* ================== CONFIG ================== */
+
+  async saveConfig(matchId: string, config: MatchConfig) {
     await redis.set(
-      `match:${matchId}:state`,
-      JSON.stringify(data),
+      this.key(matchId, "config"),
+      JSON.stringify(config),
       "EX",
-      env.MATCH_TTL_SEC
+      this.ttl
     );
   }
 
-  /**
-   * Obtiene estado general
-   */
-  async getMatchState(matchId: string): Promise<any> {
-    const res = await redis.get(`match:${matchId}:state`);
-    return res ? JSON.parse(res) : null;
+  async getConfig(matchId: string): Promise<MatchConfig | null> {
+    const data = await redis.get(this.key(matchId, "config"));
+    return data ? JSON.parse(data) : null;
   }
 
-  /**
-   * Actualiza puntaje individual
-   */
-  async updatePlayerScore(matchId: string, userId: string, score: number): Promise<void> {
-    await redis.hset(`match:${matchId}:scores`, userId, String(score));
-    await redis.expire(`match:${matchId}:scores`, env.MATCH_TTL_SEC);
+  /* ================== STATE ================== */
+
+  async setState(matchId: string, state: MatchState) {
+    await redis.set(
+      this.key(matchId, "state"),
+      state,
+      "EX",
+      this.ttl
+    );
   }
 
-  /**
-   * Obtiene todos los puntajes del match
-   */
-  async getMatchScores(matchId: string): Promise<Record<string, number>> {
-    const scores = await redis.hgetall(`match:${matchId}:scores`);
-    const numericScores: Record<string, number> = {};
+  async getState(matchId: string): Promise<MatchState | null> {
+    return (await redis.get(this.key(matchId, "state"))) as MatchState | null;
+  }
 
-    for (const [userId, scoreStr] of Object.entries(scores)) {
-      numericScores[userId] = Number(scoreStr);
+  /* ================== PLAYERS ================== */
+
+  async addPlayer(matchId: string, userId: string) {
+    await redis.sadd(this.key(matchId, "players"), userId);
+    await redis.expire(this.key(matchId, "players"), this.ttl);
+  }
+
+  async getPlayers(matchId: string): Promise<string[]> {
+    return redis.smembers(this.key(matchId, "players"));
+  }
+
+  /* ================== SNAPSHOTS ================== */
+
+  async saveSnapshot(
+    matchId: string,
+    userId: string,
+    snapshot: LiveSnapshot
+  ) {
+    await redis.hset(
+      this.key(matchId, "snapshots"),
+      userId,
+      JSON.stringify(snapshot)
+    );
+    await redis.expire(this.key(matchId, "snapshots"), this.ttl);
+  }
+
+  async getSnapshots(matchId: string): Promise<Record<string, LiveSnapshot>> {
+    const raw = await redis.hgetall(this.key(matchId, "snapshots"));
+    const parsed: Record<string, LiveSnapshot> = {};
+
+    for (const userId in raw) {
+      parsed[userId] = JSON.parse(raw[userId]);
     }
 
-    return numericScores;
+    return parsed;
   }
 
-  /**
-   * Elimina todo el estado (cleanup final del match)
-   */
-  async deleteMatchState(matchId: string): Promise<void> {
-    await redis.del(
-      `match:${matchId}:state`,
-      `match:${matchId}:scores`
+  /* ================== RESULTS ================== */
+
+  async saveResult(
+    matchId: string,
+    userId: string,
+    result: FinalResultSummary
+  ) {
+    await redis.hset(
+      this.key(matchId, "results"),
+      userId,
+      JSON.stringify(result)
     );
+    await redis.expire(this.key(matchId, "results"), this.ttl);
+  }
+
+  async getResults(
+    matchId: string
+  ): Promise<Record<string, FinalResultSummary>> {
+    const raw = await redis.hgetall(this.key(matchId, "results"));
+    const parsed: Record<string, FinalResultSummary> = {};
+
+    for (const userId in raw) {
+      parsed[userId] = JSON.parse(raw[userId]);
+    }
+
+    return parsed;
   }
 }

@@ -1,129 +1,181 @@
-// src/game/match.service.ts
-import { Socket } from "socket.io";
+import { Server, Socket } from "socket.io";
+import {
+  ClientReadyPayload,
+  ClientSnapshotPayload,
+  ClientFinishPayload,
+  MatchConfig,
+} from "./dto";
 import { StateRepository } from "./state.repository";
-import { ScoringService } from "./scoring.service";
-import { SyncService } from "./sync.service";
-import { AntiCheatService } from "./anticheat.service";
-import { ContentClient } from "../integrations/content.client";
+import { now } from "../utils/time";
+import { StatisticsClient } from "../integrations/statistics.client";
+import { LeaderboardClient } from "../integrations/leaderboard.client";
 
 export class MatchService {
-  private stateRepo = new StateRepository();
-  private scoring = new ScoringService();
-  private sync = new SyncService();
-  private antiCheat = new AntiCheatService();
-  private contentClient = new ContentClient();
+  private statsClient = new StatisticsClient();
+  private leaderboardClient = new LeaderboardClient();
 
-  private sockets: Map<string, Socket> = new Map();
-  private playerMatch: Map<string, string> = new Map();
+  constructor(
+    private readonly stateRepo: StateRepository,
+    private io?: Server
+  ) {}
 
-  /**
-   * Inicializar partida desde REST
-   */
-  async initMatch(config: any) {
-    const { matchId, songId, difficulty } = config;
+  attachIO(io: Server) {
+    this.io = io;
+  }
 
-    const content = await this.contentClient.getSongAndChart(
-      songId,
-      difficulty
+  /* ================== INIT ================== */
+
+  async initMatch(config: MatchConfig) {
+    await this.stateRepo.saveConfig(config.matchId, config);
+    await this.stateRepo.setState(config.matchId, "waiting");
+  }
+
+  /* ================== READY ================== */
+
+  async handleClientReady(socket: Socket, payload: ClientReadyPayload) {
+    socket.userId = payload.userId;
+    socket.matchId = payload.matchId;
+    socket.join(payload.matchId);
+
+    await this.stateRepo.addPlayer(payload.matchId, payload.userId);
+
+    const config = await this.stateRepo.getConfig(payload.matchId);
+    const players = await this.stateRepo.getPlayers(payload.matchId);
+
+    if (config && players.length === config.players.length) {
+      await this.stateRepo.setState(payload.matchId, "playing");
+
+      this.io?.to(payload.matchId).emit("server:start", {
+        matchId: payload.matchId,
+        startTime: now() + 3000,
+      });
+
+      this.io?.to(payload.matchId).emit("server:state", {
+        state: "playing",
+      });
+    }
+  }
+
+  /* ================== SNAPSHOT ================== */
+
+  async handleClientSnapshot(socket: Socket, payload: ClientSnapshotPayload) {
+    await this.stateRepo.saveSnapshot(
+      payload.matchId,
+      payload.userId,
+      payload.snapshot
     );
 
-    const startTime = Date.now() + 3000; // 3 segundos para sincronización
-
-    await this.stateRepo.saveMatchState(matchId, {
-      ...config,
-      songUrl: content.songUrl,
-      chartUrl: content.chartUrl,
-      startTime,
-      scores: {},
-    });
-
-    return true;
-  }
-
-  /**
-   * WS: cliente conectado -> ready
-   */
-  async handleClientReady(socket: Socket, payload: any) {
-    const { matchId, userId } = payload;
-
-    this.sockets.set(socket.id, socket);
-    this.playerMatch.set(socket.id, matchId);
-
-    const matchState = await this.stateRepo.getMatchState(matchId);
-
-    socket.emit("server:start", {
-      startTime: matchState.startTime,
-      songUrl: matchState.songUrl,
-      chartUrl: matchState.chartUrl,
+    socket.to(payload.matchId).emit("server:snapshot", {
+      userId: payload.userId,
+      snapshot: payload.snapshot,
     });
   }
 
-  /**
-   * WS: cliente envía input
-   */
-  async handleClientInput(socket: Socket, payload: any) {
-    const matchId = this.playerMatch.get(socket.id);
-    if (!matchId) return;
+  /* ================== FINISH ================== */
 
-    const { userId, noteId, judgment, timestamp, expected } = payload;
-
-    const accuracy = this.scoring.calculateHitAccuracy(timestamp, expected);
-
-    const currentScore = await this.stateRepo.getMatchScores(matchId);
-    const updatedScore = this.scoring.updatePlayerStats(
-      userId,
-      judgment || accuracy,
-      currentScore[userId] || 0
+  async handleClientFinish(socket: Socket, payload: ClientFinishPayload) {
+    /**
+     * IMPORTANTE:
+     * payload.result viene calculado 100 % desde el frontend
+     * GameService NO valida ni recalcula nada
+     */
+    await this.stateRepo.saveResult(
+      payload.matchId,
+      payload.userId,
+      payload.result
     );
 
-    await this.stateRepo.updatePlayerScore(matchId, userId, updatedScore);
+    const config = await this.stateRepo.getConfig(payload.matchId);
+    const results = await this.stateRepo.getResults(payload.matchId);
+
+    if (config && Object.keys(results).length === config.players.length) {
+      await this.finishMatch(payload.matchId, config, results);
+    }
   }
 
-  /**
-   * WS: término del cliente
-   */
-  async handleClientFinish(socket: Socket) {
-    const matchId = this.playerMatch.get(socket.id);
-    if (!matchId) return;
-    console.log(`Cliente terminó: ${socket.id}`);
-  }
+  /* ================== FINISH MATCH ================== */
 
-  /**
-   * WS: desconexión
-   */
-  handleDisconnect(socket: Socket) {
-    this.sockets.delete(socket.id);
-    this.playerMatch.delete(socket.id);
-  }
+  private async finishMatch(
+    matchId: string,
+    config: MatchConfig,
+    results: Record<
+      string,
+      {
+        score: number;
+        accuracy: number;
+        maxCombo: number;
+        durationMs: number;
+        hits: {
+          perfect: number;
+          great: number;
+          good: number;
+          miss: number;
+        };
+        firebaseUid: string;
+        gameMode: string;
+        token: string;
+      }
+    >
+  ) {
+    await this.stateRepo.setState(matchId, "finished");
 
-  /**
-   * Finalizar partida oficialmente
-   */
-  async finalizeMatch(matchId: string) {
-    const state = await this.stateRepo.getMatchState(matchId);
-    const scores = await this.stateRepo.getMatchScores(matchId);
-
-    const result = {
-      matchId,
-      songId: state.songId,
-      difficulty: state.difficulty,
-      endedAt: new Date(),
-      players: Object.entries(scores).map(([userId, score]) => ({
+    for (const [userId, result] of Object.entries(results)) {
+      /* ---------- Leaderboard ---------- */
+      await this.leaderboardClient.submitScore({
+        matchId,
         userId,
-        score,
-      })),
-    };
+        firebaseUid: result.firebaseUid,
+        songId: config.songId,
+        gameMode: result.gameMode,
+        score: result.score,
+        accuracy: result.accuracy,
+      });
 
-    // Cleanup
-    await this.stateRepo.deleteMatchState(matchId);
+      /* ---------- Statistics ---------- */
+      await this.statsClient.postGameResult(
+        {
+          songId: config.songId,
+          score: result.score,
+          accuracy: result.accuracy,
+          maxCombo: result.maxCombo,
+          durationMs: result.durationMs,
+          hits: result.hits,
+        },
+        result.token,
+        matchId
+      );
+    }
 
-    return result;
+    this.io?.to(matchId).emit("server:state", { state: "finished" });
   }
 
-  /**
-   * Obtener resultado (si existe)
-   */
-  async getMatchResult(matchId: string) {
-    return this.stateRepo.getMatchState(matchId);
+  /* ================== DISCONNECT ================== */
+
+  handleDisconnect(socket: Socket) {
+    if (!socket.matchId || !socket.userId) return;
+
+    this.io?.to(socket.matchId).emit("server:state", {
+      state: "player_disconnected",
+      userId: socket.userId,
+    });
+  }
+
+  /* ================== REST ================== */
+
+  async getMatch(matchId: string) {
+    const config = await this.stateRepo.getConfig(matchId);
+    const state = await this.stateRepo.getState(matchId);
+
+    if (!config || !state) return null;
+
+    return {
+      matchId,
+      state,
+      config,
+    };
+  }
+
+  async forceEndMatch(matchId: string) {
+    await this.stateRepo.setState(matchId, "finished");
   }
 }

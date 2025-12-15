@@ -1,45 +1,20 @@
-// src/app.ts
-import express, { Application } from "express";
+import express from "express";
 import cors from "cors";
-import morgan from "morgan";
-
-// Cuando implementemos estas piezas, estas rutas existirán:
-import { gameRouter } from "./game/game.routes";
+import gameRoutes from "./game/game.routes";
 import { errorHandler } from "./common/errorHandler";
 
-const app: Application = express();
+export function createApp() {
+  const app = express();
 
-/**
- * Middlewares globales
- */
-app.use(cors());                 // Permitir CORS (frontend ENFO)
-app.use(express.json());        // Parsear JSON en los body
-app.use(express.urlencoded({ extended: true }));
-app.use(morgan("dev"));         // Logs HTTP en consola
+  // Middlewares básicos
+  app.use(cors());
+  app.use(express.json());
 
-/**
- * Rutas base
- * 
- * Todo lo relacionado con el juego va colgado en /api/game
- * Dentro de game.routes.ts definiremos:
- *  - GET /health
- *  - POST /start
- *  - POST /end
- *  - GET  /match/:id
- */
-app.use("/api/game", gameRouter);
+  // Rutas
+  app.use("/", gameRoutes);
 
-/**
- * Ruta simple de prueba (opcional, útil mientras montas todo)
- */
-app.get("/", (_req, res) => {
-  res.json({ message: "FNFO GameService is running" });
-});
+  // Error handler (siempre al final)
+  app.use(errorHandler);
 
-/**
- * Middleware global de manejo de errores
- * (debe ir siempre al final de la cadena de middlewares)
- */
-app.use(errorHandler);
-
-export default app;
+  return app;
+}

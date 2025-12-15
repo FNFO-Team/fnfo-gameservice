@@ -1,53 +1,74 @@
-// src/game/game.controller.ts
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import { MatchService } from "./match.service";
+import { MatchConfig } from "./dto";
 
 export class GameController {
-  private matchService = new MatchService();
+  constructor(private readonly matchService: MatchService) {}
 
   /**
-   * GET /api/game/health
+   * Health check simple.
    */
-  healthCheck(_req: Request, res: Response) {
-    res.json({ status: "ok", service: "FNFO GameService" });
+  health(req: Request, res: Response) {
+    res.json({ status: "ok" });
   }
 
   /**
-   * POST /api/game/start
-   * -> Llamado por MatchmakingService
-   * body: { matchId, players, songId, difficulty, bpm }
+   * Inicia un match (llamado por Matchmaking).
    */
-  async startMatch(req: Request, res: Response) {
+  async startMatch(req: Request, res: Response, next: NextFunction) {
     try {
-      await this.matchService.initMatch(req.body);
-      res.status(200).json({ message: "Match initialized" });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      const config: MatchConfig = req.body;
+
+      if (!config?.matchId || !config?.players?.length) {
+        return res.status(400).json({ error: "Invalid match config" });
+      }
+
+      await this.matchService.initMatch(config);
+
+      res.status(201).json({
+        message: "Match created",
+        matchId: config.matchId,
+      });
+    } catch (error) {
+      next(error);
     }
   }
 
   /**
-   * POST /api/game/end
+   * Obtiene información básica del match.
    */
-  async endMatch(req: Request, res: Response) {
+  async getMatch(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { matchId } = req.params;
+
+      const match = await this.matchService.getMatch(matchId);
+
+      if (!match) {
+        return res.status(404).json({ error: "Match not found" });
+      }
+
+      res.json(match);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Finaliza un match de forma forzada (fallback).
+   */
+  async endMatch(req: Request, res: Response, next: NextFunction) {
     try {
       const { matchId } = req.body;
-      const result = await this.matchService.finalizeMatch(matchId);
-      res.status(200).json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  }
 
-  /**
-   * GET /api/game/match/:id
-   */
-  async getMatchById(req: Request, res: Response) {
-    try {
-      const result = await this.matchService.getMatchResult(req.params.id);
-      res.status(200).json(result);
-    } catch (err: any) {
-      res.status(404).json({ error: "Match not found" });
+      if (!matchId) {
+        return res.status(400).json({ error: "matchId is required" });
+      }
+
+      await this.matchService.forceEndMatch(matchId);
+
+      res.json({ message: "Match ended" });
+    } catch (error) {
+      next(error);
     }
   }
 }

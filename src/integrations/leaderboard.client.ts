@@ -1,26 +1,37 @@
-// src/integrations/leaderboard.client.ts
 import { httpClient } from "../common/httpClient";
 import { env } from "../config/env";
-import { MatchResult } from "../game/dto";
+import { generateIdempotencyKey } from "../utils/idempotency";
+
+interface LeaderboardSubmitPayload {
+  matchId: string;
+  userId: string;
+  firebaseUid: string;
+  songId: string;
+  gameMode: string;
+  score: number;
+  accuracy: number;
+}
 
 export class LeaderboardClient {
   /**
-   * Actualiza el leaderboard global al finalizar una partida.
+   * Envía el score final de un jugador al LeaderboardService.
    */
-  async postLeaderboardEntry(result: MatchResult): Promise<void> {
-    const url = `${env.LEADERBOARD_BASE_URL}/leaderboard`;
+  async submitScore(payload: LeaderboardSubmitPayload): Promise<void> {
+    const url = `${env.LEADERBOARD_BASE_URL}/submit`;
 
-    const response = await httpClient.post(url, result, {
+    const response = await httpClient.post(url, payload, {
       headers: {
-        "Idempotency-Key": result.matchId,
+        "Idempotency-Key": generateIdempotencyKey(
+          payload.matchId + ":" + payload.userId
+        ),
       },
     });
 
-    if (response.status >= 400) {
-      console.error("Error al actualizar leaderboard:", response.data);
-      throw new Error("LeaderboardService no aceptó los datos");
+    if (!response || response.status >= 400) {
+      console.error("LeaderboardService error:", response?.data);
+      throw new Error("Failed to submit leaderboard score");
     }
 
-    console.log("Leaderboard actualizado");
+    console.log("Leaderboard updated for user", payload.userId);
   }
 }

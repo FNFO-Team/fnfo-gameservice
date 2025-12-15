@@ -1,21 +1,32 @@
-// src/common/errorHandler.ts
 import { Request, Response, NextFunction } from "express";
 
-export function errorHandler(
-  err: any,
-  _req: Request,
-  res: Response,
-  _next: NextFunction
-) {
-  console.error("Error Handler:", err);
+export interface HttpError extends Error {
+  status?: number;
+}
 
-  const status = err.status || 500;
-  const message = err.message || "Internal Server Error";
+/**
+ * Middleware global de manejo de errores.
+ * Debe registrarse al FINAL de los middlewares de Express.
+ */
+export function errorHandler(
+  err: HttpError,
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const status = err.status ?? 500;
+
+  console.error("Error:", {
+    message: err.message,
+    status,
+    path: req.path,
+    method: req.method,
+  });
 
   res.status(status).json({
-    status: "error",
-    statusCode: status,
-    message,
-    details: err.details || null,
+    error: {
+      message: err.message || "Internal server error",
+      status,
+    },
   });
 }

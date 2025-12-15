@@ -1,38 +1,53 @@
-// src/common/httpClient.ts
-import axios from "axios";
-import axiosRetry from "axios-retry";
+import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 
-export const httpClient = axios.create({
-  timeout: 5000,              // 5 segundos por request
-  validateStatus: () => true, // Manejamos manualmente los códigos
-});
+/**
+ * Cliente HTTP centralizado para integraciones externas.
+ */
+class HttpClient {
+  private client: AxiosInstance;
 
-// Reintentos automáticos para fallos transitorios
-axiosRetry(httpClient, {
-  retries: 3,
-  retryDelay: axiosRetry.exponentialDelay,
-  retryCondition: (error) => {
-    return (
-      axiosRetry.isNetworkError(error) ||
-      axiosRetry.isRetryableError(error)
+  constructor() {
+    this.client = axios.create({
+      timeout: 5000,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    // Interceptor de request (opcional, útil para logs)
+    this.client.interceptors.request.use((config) => {
+      return config;
+    });
+
+    // Interceptor de response (errores controlados)
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response) {
+          // Error HTTP del servicio externo
+          return Promise.resolve(error.response);
+        }
+        // Error de red, timeout, etc.
+        return Promise.reject(error);
+      }
     );
-  },
-});
-
-// Interceptor para logs de salida
-httpClient.interceptors.request.use((config) => {
-  console.log(`-> [HTTP] ${config.method?.toUpperCase()} ${config.url}`);
-  return config;
-});
-
-// Interceptor para logs de respuesta y manejo de errores
-httpClient.interceptors.response.use(
-  (response) => {
-    console.log(`<- [HTTP] ${response.status} ${response.config.url}`);
-    return response;
-  },
-  (error) => {
-    console.error("HTTP Error:", error);
-    return Promise.reject(error);
   }
-);
+
+  get(url: string, config?: AxiosRequestConfig) {
+    return this.client.get(url, config);
+  }
+
+  post(url: string, data?: any, config?: AxiosRequestConfig) {
+    return this.client.post(url, data, config);
+  }
+
+  put(url: string, data?: any, config?: AxiosRequestConfig) {
+    return this.client.put(url, data, config);
+  }
+
+  delete(url: string, config?: AxiosRequestConfig) {
+    return this.client.delete(url, config);
+  }
+}
+
+export const httpClient = new HttpClient();

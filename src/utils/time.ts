@@ -1,36 +1,20 @@
-// src/utils/time.ts
-
 /**
- * Retorna timestamp actual en milisegundos.
+ * Timestamp actual en milisegundos.
  */
 export function now(): number {
   return Date.now();
 }
 
 /**
- * Convierte segundos a milisegundos.
+ * Genera un startTime global con offset (ej: 3 segundos).
  */
-export function sec(n: number): number {
-  return n * 1000;
+export function startTimeWithOffset(offsetMs: number): number {
+  return now() + offsetMs;
 }
 
 /**
- * Pausa la ejecución (solo para pruebas o tareas internas).
+ * Delay simple (útil para tests o simulaciones).
  */
-export async function delay(ms: number): Promise<void> {
-  return new Promise((res) => setTimeout(res, ms));
-}
-
-/**
- * Diferencia absoluta entre dos tiempos.
- */
-export function diff(a: number, b: number): number {
-  return Math.abs(a - b);
-}
-
-/**
- * Ajusta timestamp del cliente según latencia.
- */
-export function applyLatency(timestamp: number, latency: number): number {
-  return timestamp - latency / 2;
+export function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

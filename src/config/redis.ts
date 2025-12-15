@@ -1,22 +1,24 @@
-// src/config/redis.ts
 import Redis from "ioredis";
 import { env } from "./env";
 
+/**
+ * Cliente Redis compartido por todo el microservicio.
+ */
 export const redis = new Redis(env.REDIS_URL, {
   lazyConnect: false,
-  maxRetriesPerRequest: null,
   enableReadyCheck: true,
+  maxRetriesPerRequest: null,
 });
 
 /**
- * Logs importantes del ciclo de conexión
+ * Logs del ciclo de vida de Redis
  */
 redis.on("connect", () => {
-  console.log("Redis connected:", env.REDIS_URL);
+  console.log("Redis connected");
 });
 
 redis.on("ready", () => {
-  console.log("Redis is ready to receive commands.");
+  console.log("Redis ready");
 });
 
 redis.on("error", (err) => {
@@ -28,15 +30,14 @@ redis.on("reconnecting", () => {
 });
 
 /**
- * Función para asegurar que Redis está conectado
- * (para integración inicial en server.ts)
+ * Verifica conexión con Redis al iniciar el servidor.
  */
-export async function initRedis() {
+export async function initRedis(): Promise<void> {
   try {
     await redis.ping();
     console.log("Redis ping OK");
-  } catch (err) {
-    console.error("Redis connection failed:", err);
+  } catch (error) {
+    console.error("Redis connection failed");
     process.exit(1);
   }
 }

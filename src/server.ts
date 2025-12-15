@@ -1,73 +1,46 @@
-// src/server.ts
 import http from "http";
-import dotenv from "dotenv";
-import { Server as SocketIOServer } from "socket.io";
+import { Server } from "socket.io";
+import { createApp } from "./app";
+import { env } from "./config/env";
+import { initRedis } from "./config/redis";
+import { MatchGateway } from "./game/match.gateway";
+import { MatchService } from "./game/match.service";
+import { StateRepository } from "./game/state.repository";
 
-import app from "./app";
-// Esta función la implementaremos en match.gateway.ts
-import { registerMatchGateway } from "./game/match.gateway";
+async function bootstrap() {
+  // Crear app Express
+  const app = createApp();
 
-dotenv.config(); // Carga las variables de entorno desde .env
+  // Crear servidor HTTP
+  const server = http.createServer(app);
 
-/**
- * Puertos y configuración básica
- * 
- * Más adelante puede moverse esto a src/config/env.ts,
- * pero por ahora lo dejamos directo aquí para que sea sencillo.
- */
-const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
+  // Inicializar Redis
+  await initRedis();
 
-// Orígenes permitidos para WebSocket/HTTP
-const WS_ALLOW_ORIGINS = process.env.WS_ALLOW_ORIGINS
-  ? process.env.WS_ALLOW_ORIGINS.split(",").map((o) => o.trim())
-  : ["*"];
+  // Inicializar Socket.IO
+  const io = new Server(server, {
+    cors: {
+      origin: env.WS_ALLOW_ORIGINS,
+    },
+  });
 
-/**
- * Creación del servidor HTTP a partir de la app de Express
- */
-const httpServer = http.createServer(app);
+  // Dependencias del dominio
+  const stateRepository = new StateRepository();
+  const matchService = new MatchService(stateRepository);
+  matchService.attachIO(io);
 
-/**
- * Configuración el servidor de WebSocket (Socket.IO)
- * 
- * Este será el canal en tiempo real para:
- *  - client:ready
- *  - client:input
- *  - client:finish
- *  - server:start
- *  - server:scoreUpdate
- *  - server:matchEnded
- */
-const io = new SocketIOServer(httpServer, {
-  cors: {
-    origin: WS_ALLOW_ORIGINS,
-    methods: ["GET", "POST"],
-  },
-});
+  // WebSocket Gateway
+  const gateway = new MatchGateway(io, matchService);
+  gateway.register();
 
-/**
- * Registro del gateway de partidas (MatchGateway)
- * Aquí es donde, más adelante, implementaremos la lógica
- * para manejar las conexiones WS y delegarlas al MatchService.
- */
-registerMatchGateway(io);
+  // Levantar servidor
+  server.listen(env.PORT, () => {
+    console.log(`GameService running on port ${env.PORT}`);
+  });
+}
 
-/**
- * Arranque del servidor HTTP + WebSocket
- */
-httpServer.listen(PORT, () => {
-  console.log(`FNFO GameService listening on port ${PORT}`);
-  console.log(`WebSocket ready (Socket.IO), allowed origins: ${WS_ALLOW_ORIGINS.join(", ")}`);
-});
-
-/**
- * Manejo básico de errores no controlados,
- * para que el proceso no muera silenciosamente.
- */
-process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled Rejection:", reason);
-});
-
-process.on("uncaughtException", (err) => {
-  console.error("Uncaught Exception:", err);
+// Arranque
+bootstrap().catch((err) => {
+  console.error("Failed to start GameService:", err);
+  process.exit(1);
 });

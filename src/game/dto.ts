@@ -1,38 +1,101 @@
-// src/game/dto.ts
+/* ===================== */
+/* MATCH STATE           */
+/* ===================== */
+
+/**
+ * Estados posibles de una partida
+ * (controlados por GameService)
+ */
+export type MatchState =
+  | "waiting"
+  | "playing"
+  | "finished"
+  | "player_disconnected";
+
+/* ===================== */
+/* MATCH CONFIG          */
+/* ===================== */
 
 export interface MatchConfig {
   matchId: string;
-  players: string[];
   songId: string;
   difficulty: string;
-  bpm: number;
+  players: string[]; // userIds
   startTime?: number;
 }
 
-export interface InputEvent {
-  userId: string;
-  noteId: string;
-  timestamp: number;   // tiempo local del cliente
-  expected: number;    // tiempo ideal de la nota
-  judgment?: string;   // opcional si el cliente lo calcula
-}
+/* ===================== */
+/* LIVE SNAPSHOT (WS)    */
+/* ===================== */
 
-export interface PlayerStats {
-  userId: string;
+/**
+ * Snapshot enviado periódicamente por el frontend
+ * (score en vivo, NO inputs)
+ */
+export interface LiveSnapshot {
   score: number;
-  perfect: number;
-  great: number;
-  good: number;
-  miss: number;
-  comboMax?: number;
-  accuracy?: number;
-  latency?: number;
+  combo: number;
+  accuracy: number;
+  progress: number; // 0.0 → 1.0
 }
 
-export interface MatchResult {
+/* ===================== */
+/* CLIENT → SERVER EVENTS */
+/* ===================== */
+
+export interface ClientReadyPayload {
   matchId: string;
-  songId: string;
-  difficulty: string;
-  endedAt: Date;
-  players: PlayerStats[];
+  userId: string;
 }
+
+export interface ClientSnapshotPayload {
+  matchId: string;
+  userId: string;
+  snapshot: LiveSnapshot;
+}
+
+/**
+ * Resultado FINAL calculado en frontend
+ */
+export interface FinalResultSummary {
+  score: number;
+  accuracy: number;
+  maxCombo: number;
+  durationMs: number;
+
+  hits: {
+    perfect: number;
+    great: number;
+    good: number;
+    miss: number;
+  };
+
+  /**
+   * Datos necesarios para otros servicios
+   */
+  firebaseUid: string;
+  gameMode: string;
+
+  /**
+   * ID Token Firebase del usuario
+   * (se reenvía a StatisticsService)
+   */
+  token: string;
+}
+
+export interface ClientFinishPayload {
+  matchId: string;
+  userId: string;
+  result: FinalResultSummary;
+}
+
+/* ===================== */
+/* INTERNAL / REDIS      */
+/* ===================== */
+
+/**
+ * Resultados finales del match
+ * Guardados temporalmente en Redis
+ * Key = userId
+ */
+export type MatchResultsMap = Record<string, FinalResultSummary>;
